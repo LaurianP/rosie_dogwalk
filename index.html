@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rosie's Dog Walking</title>
+<style>
+  :root {
+    --bg: #faf7f2;
+    --card: #ffffff;
+    --text: #2b2622;
+    --muted: #6b625a;
+    --accent: #2f6f5e;
+    --accent-text: #ffffff;
+    --border: #e4ddd3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 40px;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 28rem; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 1.7rem; line-height: 1.2; }
+  h2 { margin: 0 0 8px; font-size: 1.05rem; }
+  .subtitle { margin: 0 0 20px; color: var(--muted); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .field + .field { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .field-label { display: block; font-weight: 600; margin-bottom: 8px; }
+  .stepper { display: flex; align-items: center; gap: 16px; }
+  .stepper button {
+    width: 48px; height: 48px;
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    background: var(--card);
+    color: var(--accent);
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .stepper button:disabled { border-color: var(--border); color: var(--border); cursor: default; }
+  .count { min-width: 2ch; text-align: center; font-size: 1.5rem; font-weight: 600; }
+  .note { margin: 8px 0 0; font-size: 0.9rem; color: var(--muted); }
+  .toggle { display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 600; cursor: pointer; }
+  .toggle input { width: 24px; height: 24px; margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+  .total-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .total { font-size: 2.2rem; font-weight: 700; color: var(--accent); }
+  .breakdown { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--border); }
+  .breakdown li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .rules { margin: 0; padding-left: 20px; }
+  .book {
+    display: block;
+    text-align: center;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rosie's Dog Walking</h1>
+  <p class="subtitle" id="walk-length"></p>
+
+  <section class="card" aria-label="Quote options">
+    <div class="field">
+      <span class="field-label" id="dogs-label">Number of dogs (same household)</span>
+      <div class="stepper" role="group" aria-labelledby="dogs-label">
+        <button type="button" id="dogs-minus" aria-label="One fewer dog">−</button>
+        <span class="count" id="dogs-count" aria-live="polite"></span>
+        <button type="button" id="dogs-plus" aria-label="One more dog">+</button>
+      </div>
+      <p class="note" id="max-note" hidden></p>
+    </div>
+    <div class="field">
+      <label class="toggle"><input type="checkbox" id="today"> <span id="today-label"></span></label>
+    </div>
+    <div class="field">
+      <label class="toggle"><input type="checkbox" id="holiday"> <span id="holiday-label"></span></label>
+      <p class="note" id="holiday-list"></p>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Your quote">
+    <div class="total-row">
+      <h2>Your quote</h2>
+      <span class="total" id="total" aria-live="polite"></span>
+    </div>
+    <ul class="breakdown" id="breakdown"></ul>
+    <p class="note">Quote is an estimate; Rosie confirms your price when you book.</p>
+  </section>
+
+  <section class="card">
+    <h2>How pricing works</h2>
+    <ul class="rules" id="rules"></ul>
+  </section>
+
+  <a class="book" id="book"></a>
+</main>
+
+<script>
+  // ===== Edit prices here — nothing else needs changing. =====
+  const PRICING = Object.freeze({
+    BASE_RATE: 20,            // price of one walk for the first dog, in whole dollars
+    SAME_DAY_PERCENT: 25,     // surcharge when the walk is today
+    MAX_DOGS: 4,              // most dogs per booking
+    CURRENCY: "$",
+    WALK_LENGTH: "30-minute",
+    HOLIDAYS: ["New Year's Day", "Easter Sunday", "July 4", "Thanksgiving", "Christmas Eve", "Christmas Day"],
+    PHONE: "555-0100"
+  });
+  // ============================================================
+
+  // Halves always round up (spec §4).
+  function roundHalfUp(x) {
+    return Math.floor(x + 0.5);
+  }
+
+  function ordinal(n) {
+    const suffix = { 1: "st", 2: "nd", 3: "rd" }[n] || "th";
+    return n + suffix;
+  }
+
+  function money(amount) {
+    return PRICING.CURRENCY + amount;
+  }
+
+  // Pure pricing: no DOM. Rules run in spec order (FR7–FR11);
+  // each line is rounded when calculated, and the total is the sum of the lines.
+  function quote(dogs, today, holiday) {
+    const lines = [];
+
+    // 1. Dogs: on a holiday every dog is full price; otherwise dogs after the first are 50% off.
+    for (let i = 1; i <= dogs; i++) {
+      if (i === 1 || holiday) {
+        lines.push({ label: ordinal(i) + " dog", amount: PRICING.BASE_RATE });
+      } else {
+        lines.push({ label: ordinal(i) + " dog (50% off)", amount: roundHalfUp(PRICING.BASE_RATE * 0.5) });
+      }
+    }
+    let subtotal = lines.reduce((sum, line) => sum + line.amount, 0);
+
+    // 2. Holiday: double the dog subtotal.
+    if (holiday) {
+      lines.push({ label: "Holiday rate (2×)", amount: subtotal, added: true });
+      subtotal += subtotal;
+    }
+
+    // 3. Same-day: percentage of the running subtotal, after any doubling.
+    if (today) {
+      const surcharge = roundHalfUp(subtotal * PRICING.SAME_DAY_PERCENT / 100);
+      lines.push({ label: "Same-day (+" + PRICING.SAME_DAY_PERCENT + "%)", amount: surcharge, added: true });
+    }
+
+    // 4. Total is always the sum of the lines shown.
+    const total = lines.reduce((sum, line) => sum + line.amount, 0);
+    return { lines, total };
+  }
+
+  const state = { dogs: 1, today: false, holiday: false };
+  const el = (id) => document.getElementById(id);
+
+  function render() {
+    el("dogs-count").textContent = state.dogs;
+    el("dogs-minus").disabled = state.dogs <= 1;
+    el("dogs-plus").disabled = state.dogs >= PRICING.MAX_DOGS;
+    el("max-note").hidden = state.dogs < PRICING.MAX_DOGS;
+
+    const result = quote(state.dogs, state.today, state.holiday);
+    el("total").textContent = money(result.total);
+
+    const list = el("breakdown");
+    list.replaceChildren(...result.lines.map((line) => {
+      const li = document.createElement("li");
+      const label = document.createElement("span");
+      const amount = document.createElement("span");
+      label.textContent = line.label;
+      amount.textContent = (line.added ? "+" : "") + money(line.amount);
+      li.append(label, amount);
+      return li;
+    }));
+  }
+
+  function init() {
+    const p = PRICING;
+    el("walk-length").textContent = "Price for one " + p.WALK_LENGTH + " walk";
+    el("today-label").textContent = "Walk is today (+" + p.SAME_DAY_PERCENT + "%)";
+    el("holiday-label").textContent = "Holiday walk (2×)";
+    el("holiday-list").textContent = "Holidays: " + p.HOLIDAYS.join(", ");
+    el("max-note").textContent = "More than " + p.MAX_DOGS + " dogs? Text Rosie for a custom quote.";
+
+    const rules = [
+      "First dog " + money(p.BASE_RATE) + ", each additional dog half price.",
+      "Holiday walks are double, with no multi-dog discount.",
+      "Walks booked for today add " + p.SAME_DAY_PERCENT + "%.",
+      "Prices are rounded to the nearest dollar."
+    ];
+    el("rules").replaceChildren(...rules.map((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      return li;
+    }));
+
+    const book = el("book");
+    book.textContent = "Text Rosie at " + p.PHONE + " to book";
+    book.href = "sms:" + p.PHONE.replace(/[^\d+]/g, "");
+
+    el("dogs-minus").addEventListener("click", () => { state.dogs = Math.max(1, state.dogs - 1); render(); });
+    el("dogs-plus").addEventListener("click", () => { state.dogs = Math.min(p.MAX_DOGS, state.dogs + 1); render(); });
+    // Reload resets to defaults (spec §4), even if the browser restores checkbox state.
+    el("today").checked = state.today;
+    el("holiday").checked = state.holiday;
+
+    el("today").addEventListener("change", (e) => { state.today = e.target.checked; render(); });
+    el("holiday").addEventListener("change", (e) => { state.holiday = e.target.checked; render(); });
+
+    render();
+  }
+
+  init();
+</script>
+</body>
+</html>
