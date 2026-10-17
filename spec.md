@@ -19,7 +19,7 @@ One public page where anyone can get the price of one standard walk in a few sec
 ## 3. Functional requirements
 
 ### Pricing block
-- **FR1** One labelled block at the top of the script holds every business value: `BASE_RATE`, `SAME_DAY_PERCENT`, `MAX_DOGS`, `CURRENCY`, `WALK_LENGTH` (e.g. "30-minute"), `HOLIDAYS` (a list of holiday names), and `PHONE`. Every number, label and note on the page that mentions these values is generated from the block, so none of them is typed into the HTML twice.
+- **FR1** One labelled block at the top of the script holds every business value: `BASE_RATE`, `SAME_DAY_PERCENT`, `MAX_DOGS`, `AGGRESSIVE_SURCHARGE`, `CURRENCY`, `WALK_LENGTH` (e.g. "30-minute"), `HOLIDAYS` (a list of holiday names), and `PHONE`. Every number, label and note on the page that mentions these values is generated from the block, so none of them is typed into the HTML twice.
 
 ### Page
 - **FR2** The page shows, top to bottom:
@@ -37,6 +37,7 @@ One public page where anyone can get the price of one standard walk in a few sec
 ### Inputs
 - **FR4** *Number of dogs (same household)*: a whole-number control with − / + buttons. It starts at 1. − is disabled at 1 and + is disabled at `MAX_DOGS`. At `MAX_DOGS` a note appears below it: "More than `MAX_DOGS` dogs? Text Rosie for a custom quote." The note is hidden below the max.
 - **FR5** *Walk is today*: an on/off toggle labelled with the surcharge, e.g. "Walk is today (+25%)". Off by default. "Same-day" means the walk happens on the day it is booked, whatever the hour.
+- **FR5a** *Aggressive/reactive dog*: an on/off toggle labelled "At least one dog is aggressive or reactive (+`CURRENCY``AGGRESSIVE_SURCHARGE`)", e.g. "(+$10)". Off by default. It is one toggle for the whole booking, not one per dog. (Source: issue #1 - "one yes/no toggle for the whole booking: \"At least one dog is aggressive or reactive (+$10)\"")
 - **FR6** *Holiday walk*: an on/off toggle labelled "Holiday walk (2×)". Off by default. Directly beneath it, the page lists the holidays from `HOLIDAYS` as plain text. There is no date picker; the user decides whether the toggle applies.
 
 ### Pricing rules
@@ -46,26 +47,30 @@ Each step is applied in order. Every amount is rounded to a **whole dollar** (ha
 - **FR8 Dogs (holiday).** On a holiday walk there is **no multi-dog discount**: every dog costs `BASE_RATE`. This is what "no stacking discounts" means.
 - **FR9 Holiday doubling.** On a holiday walk, the dog subtotal is doubled. The breakdown shows this as one added amount equal to the subtotal.
 - **FR10 Same-day surcharge.** If "Walk is today" is on, add `SAME_DAY_PERCENT` of the running subtotal (after any holiday doubling), rounded. On a holiday walk booked same-day, the surcharge is therefore worked out on the doubled price.
+- **FR11a Aggressive/reactive surcharge.** If the toggle is on, add a flat `AGGRESSIVE_SURCHARGE` as the last step, after holiday doubling and after the same-day surcharge. It is one charge per booking regardless of dog count, is never doubled on holidays, and the same-day percentage is never applied to it. (Source: issue #1 - "It's a flat $10 per booking no matter how many aggressive dogs are in it, not per dog — and it doesn't double on holidays, it just gets added on top after the holiday doubling." and "the $10 is added last, after holiday doubling *and* after the same-day %. The same-day % is never applied to it. (1 dog, today = $35.)")
 - **FR11 Total** = the sum of the breakdown lines. The total is never rounded separately from the lines, so the lines always add up to the total shown.
 
 ### Output
 - **FR12** The total and breakdown update as soon as any input changes. There is no "Calculate" button, and the quote for the defaults (1 dog, no toggles) shows the moment the page loads.
-- **FR13** The breakdown lists one line per dog, then holiday, then same-day. Lines that don't apply are hidden, not shown as $0.
+- **FR13** The breakdown lists one line per dog, then holiday, then same-day, then the aggressive/reactive surcharge. Lines that don't apply are hidden, not shown as $0.
   - Normal day: "1st dog $20", then "2nd dog (50% off) $10", "3rd dog (50% off) $10", and so on.
   - Holiday: "1st dog $20", "2nd dog $20", … with no "50% off" label, then "Holiday rate (2×) +$40".
   - Same-day: "Same-day (+25%) +$X".
+  - Aggressive/reactive: "Aggressive/reactive dog surcharge (+$10) +$10". (Source: issue #1 - "Wording \"Aggressive/reactive dog surcharge (+$10)\" for the breakdown line is fine.")
 - **FR14** All amounts show `CURRENCY` and whole dollars only, with no cents (e.g. `$38`, never `$37.50` or `$38.00`).
 - **FR15** Under the total: "Quote is an estimate; Rosie confirms your price when you book."
 - **FR16** "How pricing works" states the rules in plain words, using values from the pricing block:
   - first dog `BASE_RATE`, each additional dog half price;
   - holiday walks are double, with no multi-dog discount;
   - walks booked for today add `SAME_DAY_PERCENT`;
+  - if any dog is aggressive or reactive, a flat `AGGRESSIVE_SURCHARGE` per booking is added last;
   - prices are rounded to the nearest dollar.
 - **FR17** Booking line: "Text Rosie at `PHONE` to book". The number is an `sms:` link, so it can be tapped on a phone.
 
 ## 4. Edge cases & rules
 - **Holiday + same-day** both apply: full-price dogs, doubled, then the percentage of the doubled amount.
 - **Rounding.** Halves always round up. Each line is rounded when it is calculated, and the surcharge is worked out on the already-rounded subtotal. Example (base $27, 2 dogs, today): $27 + $14 (13.50 rounded) = $41, plus 25% of $41 = 10.25, which rounds to $10. Total $51.
+- **Aggressive/reactive + holiday + same-day** all apply: dogs, doubled, same-day % of the doubled amount, then the flat surcharge on top. The surcharge is not doubled and not part of the same-day base.
 - **Dog count** can never be 0, negative, a fraction, blank, or above `MAX_DOGS`. If the field is typeable, invalid input snaps back to the nearest valid value.
 - **Same household.** The dog count label says "same household". Separate households sharing a walk each get their own quote. The page can't check this; the label is the rule.
 - **Reload** resets to the defaults. Nothing is remembered between visits.
@@ -103,6 +108,12 @@ These tests change the pricing block and reload the page:
 - **A11** Set `SAME_DAY_PERCENT = 30`. The toggle label, "How pricing works" and A4 (20 + 6 = **$26**) all update, with no other edits.
 
 Behaviour checks:
+- **A19** 1 dog, today off, holiday off, aggressive on: 20 + 10 = **$30**.
+- **A20** 1 dog, today on, aggressive on: 20 + 5 + 10 = **$35**.
+- **A21** 2 dogs, holiday on, aggressive on: 20 + 20 + 40 + 10 = **$90** (surcharge not doubled).
+- **A22** 3 dogs, today on, holiday on, aggressive on: 20 + 20 + 20 + 60 + 30 + 10 = **$160**.
+- **A23** 4 dogs, aggressive on, everything else off: 20 + 10 + 10 + 10 + 10 = **$60** (one surcharge, not per dog).
+- **A24** Set `AGGRESSIVE_SURCHARGE = 15`. A19 then shows 20 + 15 = **$35**, and the toggle label, breakdown line and "How pricing works" update with no other edits.
 - **A12** On load, before any interaction, the page already shows A1's quote.
 - **A13** Changing any input updates the total and breakdown with no button press.
 - **A14** At 1 dog, − is disabled. At 4 dogs, + is disabled and the "More than 4 dogs? Text Rosie…" note is visible. At 3 dogs the note is hidden.
@@ -116,6 +127,7 @@ Rosie's real values for these, which replace the placeholders in the pricing blo
 - `BASE_RATE`
 - `SAME_DAY_PERCENT`
 - `MAX_DOGS`
+- `AGGRESSIVE_SURCHARGE`
 - `CURRENCY`
 - `WALK_LENGTH`
 - `HOLIDAYS` (her holiday list)

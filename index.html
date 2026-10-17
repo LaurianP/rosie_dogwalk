@@ -91,6 +91,9 @@
       <label class="toggle"><input type="checkbox" id="holiday"> <span id="holiday-label"></span></label>
       <p class="note" id="holiday-list"></p>
     </div>
+    <div class="field">
+      <label class="toggle"><input type="checkbox" id="aggressive"> <span id="aggressive-label"></span></label>
+    </div>
   </section>
 
   <section class="card" aria-label="Your quote">
@@ -116,6 +119,7 @@
     BASE_RATE: 20,            // price of one walk for the first dog, in whole dollars
     SAME_DAY_PERCENT: 25,     // surcharge when the walk is today
     MAX_DOGS: 4,              // most dogs per booking
+    AGGRESSIVE_SURCHARGE: 10, // flat amount per booking if any dog is aggressive/reactive, in whole dollars
     CURRENCY: "$",
     WALK_LENGTH: "30-minute",
     HOLIDAYS: ["New Year's Day", "Easter Sunday", "July 4", "Thanksgiving", "Christmas Eve", "Christmas Day"],
@@ -137,9 +141,9 @@
     return PRICING.CURRENCY + amount;
   }
 
-  // Pure pricing: no DOM. Rules run in spec order (FR7–FR11);
+  // Pure pricing: no DOM. Rules run in spec order (FR7–FR11, FR11a);
   // each line is rounded when calculated, and the total is the sum of the lines.
-  function quote(dogs, today, holiday) {
+  function quote(dogs, today, holiday, aggressive) {
     const lines = [];
 
     // 1. Dogs: on a holiday every dog is full price; otherwise dogs after the first are 50% off.
@@ -164,12 +168,17 @@
       lines.push({ label: "Same-day (+" + PRICING.SAME_DAY_PERCENT + "%)", amount: surcharge, added: true });
     }
 
-    // 4. Total is always the sum of the lines shown.
+    // 4. Aggressive/reactive dog: flat per booking, added last, never doubled or inflated by the same-day %.
+    if (aggressive) {
+      lines.push({ label: "Aggressive/reactive dog surcharge (+" + money(PRICING.AGGRESSIVE_SURCHARGE) + ")", amount: PRICING.AGGRESSIVE_SURCHARGE, added: true });
+    }
+
+    // 5. Total is always the sum of the lines shown.
     const total = lines.reduce((sum, line) => sum + line.amount, 0);
     return { lines, total };
   }
 
-  const state = { dogs: 1, today: false, holiday: false };
+  const state = { dogs: 1, today: false, holiday: false, aggressive: false };
   const el = (id) => document.getElementById(id);
 
   function render() {
@@ -178,7 +187,7 @@
     el("dogs-plus").disabled = state.dogs >= PRICING.MAX_DOGS;
     el("max-note").hidden = state.dogs < PRICING.MAX_DOGS;
 
-    const result = quote(state.dogs, state.today, state.holiday);
+    const result = quote(state.dogs, state.today, state.holiday, state.aggressive);
     el("total").textContent = money(result.total);
 
     const list = el("breakdown");
@@ -198,6 +207,7 @@
     el("walk-length").textContent = "Price for one " + p.WALK_LENGTH + " walk";
     el("today-label").textContent = "Walk is today (+" + p.SAME_DAY_PERCENT + "%)";
     el("holiday-label").textContent = "Holiday walk (2×)";
+    el("aggressive-label").textContent = "At least one dog is aggressive or reactive (+" + money(p.AGGRESSIVE_SURCHARGE) + ")";
     el("holiday-list").textContent = "Holidays: " + p.HOLIDAYS.join(", ");
     el("max-note").textContent = "More than " + p.MAX_DOGS + " dogs? Text Rosie for a custom quote.";
 
@@ -205,6 +215,7 @@
       "First dog " + money(p.BASE_RATE) + ", each additional dog half price.",
       "Holiday walks are double, with no multi-dog discount.",
       "Walks booked for today add " + p.SAME_DAY_PERCENT + "%.",
+      "If any dog is aggressive or reactive, add a flat " + money(p.AGGRESSIVE_SURCHARGE) + " per booking, after everything else.",
       "Prices are rounded to the nearest dollar."
     ];
     el("rules").replaceChildren(...rules.map((text) => {
@@ -222,9 +233,11 @@
     // Reload resets to defaults (spec §4), even if the browser restores checkbox state.
     el("today").checked = state.today;
     el("holiday").checked = state.holiday;
+    el("aggressive").checked = state.aggressive;
 
     el("today").addEventListener("change", (e) => { state.today = e.target.checked; render(); });
     el("holiday").addEventListener("change", (e) => { state.holiday = e.target.checked; render(); });
+    el("aggressive").addEventListener("change", (e) => { state.aggressive = e.target.checked; render(); });
 
     render();
   }
